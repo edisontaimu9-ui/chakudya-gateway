@@ -3,9 +3,9 @@
  *
  *   /p/<api path>  public docs traffic. Allowlisted routes only; the docs site's consumer
  *                  key (DOCS_SITE_KEY) is attached here, never shipped to the browser.
- *   /a/<api path>  admin monitoring. Needs a Supabase login token whose verified email is in
- *                  ADMIN_EMAILS; GET only, on ADMIN_GET_PATHS; the root key (ADMIN_API_KEY)
- *                  is attached here.
+ *   /a/<api path>  admin. Needs a Supabase login token whose verified email is in ADMIN_EMAILS.
+ *                  GET on ADMIN_GET_PATHS; writes only for the allowlisted routes below and only
+ *                  while ADMIN_WRITES=true. The root key (ADMIN_API_KEY) is attached here.
  */
 
 // Public allowlist. Everything else is refused, including every /admin route.
@@ -21,7 +21,7 @@ const csv = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolea
 function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400",
     "Vary": "Origin",
@@ -102,6 +102,25 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
 
 /* ───────── admin ───────── */
 
+// The only writes the admin gateway will forward, and only while ADMIN_WRITES = "true".
+// Each entry validates and rebuilds the body so nothing unexpected reaches the API.
+const ADMIN_ROLES_CREATABLE = ["reviewer", "admin"];
+const ADMIN_WRITE_ROUTES = [
+  {
+    method: "POST",
+    re: /^\/admin\/keys$/,
+    body(raw) {
+      let p;
+      try { p = JSON.parse(raw); } catch (_) { return { error: "Body must be JSON." }; }
+      const label = typeof p?.label === "string" ? p.label.trim() : "";
+      if (!label || label.length > 80) return { error: "Label is required (max 80 characters)." };
+      if (!ADMIN_ROLES_CREATABLE.includes(p?.role)) return { error: "Role must be reviewer or admin." };
+      return { json: JSON.stringify({ label, role: p.role }) };
+    },
+  },
+  { method: "DELETE", re: /^\/admin\/keys\/\d+$/ },
+];
+
 async function verifyAdmin(request, env) {
   const auth = request.headers.get("Authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -123,16 +142,41 @@ async function verifyAdmin(request, env) {
 async function handleAdmin(request, env, apiPath, search, origin) {
   const noStore = { "Cache-Control": "no-store" };
   if (!env.ADMIN_API_KEY || !env.ADMIN_EMAILS) return json(503, { error: "Admin access is not configured." }, origin, noStore);
-  if (request.method !== "GET") return json(405, { error: "Admin gateway is read-only." }, origin, noStore);
   const email = await verifyAdmin(request, env);
   if (!email) return json(401, { error: "Admin sign-in required." }, origin, noStore);
-  if (!csv(env.ADMIN_GET_PATHS).some((p) => underPrefix(apiPath, p))) {
-    return json(403, { error: "Route not enabled for the admin gateway." }, origin, noStore);
+
+  if (request.method === "GET") {
+    if (!csv(env.ADMIN_GET_PATHS).some((p) => underPrefix(apiPath, p))) {
+      return json(403, { error: "Route not enabled for the admin gateway." }, origin, noStore);
+    }
+    const res = await callApi(env, apiPath, search, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${env.ADMIN_API_KEY}`, Accept: "application/json" },
+    });
+    return relay(res, origin, noStore);
   }
-  const res = await callApi(env, apiPath, search, {
-    method: "GET",
-    headers: { Authorization: `Bearer ${env.ADMIN_API_KEY}`, Accept: "application/json" },
-  });
+
+  // Writes: off unless ADMIN_WRITES = "true", and only the allowlisted routes.
+  if (String(env.ADMIN_WRITES).toLowerCase() !== "true") {
+    return json(403, { error: "Admin writes are switched off." }, origin, noStore);
+  }
+  const route = ADMIN_WRITE_ROUTES.find((r) => r.method === request.method && r.re.test(apiPath));
+  if (!route) return json(405, { error: "This admin action is not enabled." }, origin, noStore);
+
+  const headers = { Authorization: `Bearer ${env.ADMIN_API_KEY}`, Accept: "application/json" };
+  let body;
+  if (route.body) {
+    const raw = await request.text();
+    if (raw.length > 4096) return json(413, { error: "Request body too large." }, origin, noStore);
+    const checked = route.body(raw);
+    if (checked.error) return json(400, { error: checked.error }, origin, noStore);
+    body = checked.json;
+    headers["Content-Type"] = "application/json";
+  }
+  // One log line per admin action (who, what). Never the body: it can hold a new key label only,
+  // and the raw key is never seen by this Worker's code, only relayed back to the caller.
+  console.log(JSON.stringify({ admin: email, method: request.method, path: apiPath }));
+  const res = await callApi(env, apiPath, "", { method: request.method, headers, ...(body ? { body } : {}) });
   return relay(res, origin, noStore);
 }
 
