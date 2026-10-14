@@ -15,12 +15,12 @@ account_id = "2d878c3281833694bc40ceecd6cf889f"
 [vars]
 API_URL = "https://chakudya-api.edisontaimu9.workers.dev"
 # Origins allowed to call this gateway from a browser (comma-separated, no path).
-ALLOWED_ORIGINS = "https://edisontaimu9-ui.github.io"
+ALLOWED_ORIGINS = "https://edisontaimu9-ui.github.io,https://minutriq.me"
 # Public values (same as js/config.js in the docs site).
 SUPABASE_URL = "https://vivjinvanlttossdgiwc.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_LosrwYza1bjlBK5d_NwZBA_wBGOTf-v"
 # Admin routes the gateway will forward (GET only). Add more when the admin page needs them.
-ADMIN_GET_PATHS = "/admin/keys"
+ADMIN_GET_PATHS = "/admin/overview,/admin/keys,/health"
 
 # Calls chakudya-api directly (Worker-to-Worker on workers.dev needs a service binding).
 [[services]]
