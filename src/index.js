@@ -7,6 +7,7 @@
  *                  GET on ADMIN_GET_PATHS; writes only for the allowlisted routes below and only
  *                  while ADMIN_WRITES=true. The root key (ADMIN_API_KEY) is attached here.
  *                  Writes: create/revoke keys, approve/reject packaged-food submissions.
+ *                  Read-only viewers: RAG ingest jobs (/rag/jobs) and the FHIR audit log (/fhir/AuditEvent).
  */
 
 // Public allowlist. Everything else is refused, including every /admin route.
