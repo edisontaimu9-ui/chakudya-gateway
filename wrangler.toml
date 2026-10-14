@@ -20,8 +20,8 @@ ALLOWED_ORIGINS = "https://edisontaimu9-ui.github.io,https://minutriq.me"
 SUPABASE_URL = "https://vivjinvanlttossdgiwc.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_LosrwYza1bjlBK5d_NwZBA_wBGOTf-v"
 # Admin routes the gateway will forward (GET only). Add more when the admin page needs them.
-ADMIN_GET_PATHS = "/admin/overview,/admin/keys,/health"
-# Kill switch for admin writes (create/revoke keys). Set to "false" to make the admin gateway read-only.
+ADMIN_GET_PATHS = "/admin/overview,/admin/keys,/health,/packaged/pending"
+# Kill switch for admin writes (create/revoke keys, approve/reject packaged foods). Set to "false" to make the admin gateway read-only.
 ADMIN_WRITES = "true"
 
 # Calls chakudya-api directly (Worker-to-Worker on workers.dev needs a service binding).

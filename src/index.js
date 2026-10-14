@@ -6,6 +6,7 @@
  *   /a/<api path>  admin. Needs a Supabase login token whose verified email is in ADMIN_EMAILS.
  *                  GET on ADMIN_GET_PATHS; writes only for the allowlisted routes below and only
  *                  while ADMIN_WRITES=true. The root key (ADMIN_API_KEY) is attached here.
+ *                  Writes: create/revoke keys, approve/reject packaged-food submissions.
  */
 
 // Public allowlist. Everything else is refused, including every /admin route.
@@ -119,6 +120,24 @@ const ADMIN_WRITE_ROUTES = [
     },
   },
   { method: "DELETE", re: /^\/admin\/keys\/\d+$/ },
+  // Packaged-food review queue. The root key has no identity of its own, so the verified
+  // admin email is stamped into reviewed_by here; the browser cannot choose it.
+  {
+    method: "POST",
+    re: /^\/packaged\/[A-Za-z0-9-]{1,64}\/approve$/,
+    body(_raw, email) { return { json: JSON.stringify({ reviewed_by: email }) }; },
+  },
+  {
+    method: "POST",
+    re: /^\/packaged\/[A-Za-z0-9-]{1,64}\/reject$/,
+    body(raw, email) {
+      let p;
+      try { p = JSON.parse(raw); } catch (_) { return { error: "Body must be JSON." }; }
+      const reason = typeof p?.reason === "string" ? p.reason.trim() : "";
+      if (!reason || reason.length > 300) return { error: "A reason is required (max 300 characters)." };
+      return { json: JSON.stringify({ reason, reviewed_by: email }) };
+    },
+  },
 ];
 
 async function verifyAdmin(request, env) {
@@ -168,7 +187,7 @@ async function handleAdmin(request, env, apiPath, search, origin) {
   if (route.body) {
     const raw = await request.text();
     if (raw.length > 4096) return json(413, { error: "Request body too large." }, origin, noStore);
-    const checked = route.body(raw);
+    const checked = route.body(raw, email);
     if (checked.error) return json(400, { error: checked.error }, origin, noStore);
     body = checked.json;
     headers["Content-Type"] = "application/json";
