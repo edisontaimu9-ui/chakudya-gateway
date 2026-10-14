@@ -1,0 +1,7 @@
+{
+  "name": "chakudya-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Gateway Worker for the Chakudya docs site and admin monitor"
+}

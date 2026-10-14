@@ -1,0 +1,35 @@
+# Chakudya Gateway - one Worker in front of chakudya-api for
+#   /p/*  public docs-site traffic (site consumer key kept server-side)
+#   /a/*  admin monitoring (Supabase login + email allowlist, root key kept server-side)
+name = "chakudya-gateway"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+account_id = "2d878c3281833694bc40ceecd6cf889f"
+
+# Secrets - add in Cloudflare dashboard: Workers & Pages -> chakudya-gateway ->
+# Settings -> Variables and Secrets -> Add (type: Secret). Never put values here.
+#   DOCS_SITE_KEY   consumer key (cnr_...) created in the Developer Console for the docs site
+#   ADMIN_API_KEY   the root ADMIN_API_KEY of chakudya-api (only needed for /a/*)
+#   ADMIN_EMAILS    comma-separated emails allowed on /a/* (e.g. you@example.com)
+
+[vars]
+API_URL = "https://chakudya-api.edisontaimu9.workers.dev"
+# Origins allowed to call this gateway from a browser (comma-separated, no path).
+ALLOWED_ORIGINS = "https://edisontaimu9-ui.github.io"
+# Public values (same as js/config.js in the docs site).
+SUPABASE_URL = "https://vivjinvanlttossdgiwc.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_LosrwYza1bjlBK5d_NwZBA_wBGOTf-v"
+# Admin routes the gateway will forward (GET only). Add more when the admin page needs them.
+ADMIN_GET_PATHS = "/admin/keys"
+
+# Calls chakudya-api directly (Worker-to-Worker on workers.dev needs a service binding).
+[[services]]
+binding = "API"
+service = "chakudya-api"
+
+# Per-IP limit on public traffic.
+[[unsafe.bindings]]
+name = "PUBLIC_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
