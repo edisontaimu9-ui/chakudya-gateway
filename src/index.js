@@ -13,8 +13,13 @@
 // Public allowlist. Everything else is refused, including every /admin route.
 const PUBLIC_GET_PREFIXES = [
   "/health", "/foods", "/glycaemic-index", "/exchange", "/renal", "/formulas", "/drug-interactions",
+  "/activity-energy", "/energy/factors",
 ];
-const PUBLIC_POST_PATHS = ["/rag/ask", "/meals/analyze"];
+// Exact paths only. Calculators that read reference data and store nothing. Never a /bulk route.
+const PUBLIC_POST_PATHS = [
+  "/rag/ask", "/meals/analyze",
+  "/energy/requirements", "/energy/food-energy", "/activity-energy/calculate",
+];
 const MAX_BODY_BYTES = 16 * 1024;
 const PUBLIC_CACHE_SECONDS = 60;
 
