@@ -20,7 +20,7 @@ ALLOWED_ORIGINS = "https://edisontaimu9-ui.github.io,https://minutriq.me"
 SUPABASE_URL = "https://vivjinvanlttossdgiwc.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_LosrwYza1bjlBK5d_NwZBA_wBGOTf-v"
 # Admin routes the gateway will forward (GET only). Add more when the admin page needs them.
-ADMIN_GET_PATHS = "/admin/overview,/admin/activity,/admin/monitoring,/admin/usage,/admin/keys,/health,/packaged/pending,/rag/jobs,/fhir/AuditEvent"
+ADMIN_GET_PATHS = "/admin/overview,/admin/activity,/admin/monitoring,/admin/usage,/admin/health-history,/admin/keys,/health,/packaged/pending,/rag/jobs,/fhir/AuditEvent"
 # Kill switch for admin writes (create/revoke keys, approve/reject packaged foods). Set to "false" to make the admin gateway read-only.
 ADMIN_WRITES = "true"
 
