@@ -17,7 +17,7 @@ const PUBLIC_GET_PREFIXES = [
 ];
 // Exact paths only. Calculators that read reference data and store nothing. Never a /bulk route.
 const PUBLIC_POST_PATHS = [
-  "/rag/ask", "/meals/analyze",
+  "/rag/ask", "/meals/analyze", "/memory/write", "/feedback",
   "/energy/requirements", "/energy/food-energy", "/activity-energy/calculate",
 ];
 const MAX_BODY_BYTES = 16 * 1024;
@@ -66,6 +66,62 @@ function relay(res, origin, extra = {}) {
 
 /* ───────── public ───────── */
 
+// NutriMind server memory: a browser-made id like nm_k3j9x0abc12. Anything else (for example an
+// Oasis patient session) is refused so the public site can never read or write another app's memory.
+const NM_SESSION = /^nm_[a-z0-9]{12,40}$/;
+const FEEDBACK_REASONS = ["", "inaccurate", "incomplete", "unclear", "other"];
+const clip = (v, max) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+
+async function readJson(request, origin) {
+  const text = await request.text();
+  if (text.length > MAX_BODY_BYTES) return { error: json(413, { error: "Request body too large." }, origin) };
+  try {
+    const body = JSON.parse(text);
+    if (body && typeof body === "object" && !Array.isArray(body)) return { body };
+  } catch (_) { /* fall through */ }
+  return { error: json(400, { error: "Invalid JSON." }, origin) };
+}
+
+// POST /p/memory/write - one short fact about what a NutriMind visitor asked. Fields are rebuilt.
+async function handleMemoryWrite(request, env, origin, headers) {
+  const { body, error } = await readJson(request, origin);
+  if (error) return error;
+  const session_id = clip(body.session_id, 60);
+  const content = clip(body.content, 300);
+  if (!NM_SESSION.test(session_id) || !content) return json(400, { error: "Invalid memory entry." }, origin);
+  const res = await callApi(env, "/memory/write", "", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id, content, kind: "fact" }),
+  });
+  return relay(res, origin);
+}
+
+// POST /p/feedback - thumbs up/down on a NutriMind answer, saved to Supabase (insert-only).
+async function handleFeedback(request, env, origin) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return json(503, { error: "Feedback is not configured." }, origin);
+  const { body, error } = await readJson(request, origin);
+  if (error) return error;
+  const row = {
+    fid: clip(body.fid, 40),
+    rating: clip(body.rating, 8),
+    reason: clip(body.reason, 16),
+    mode: clip(body.mode, 8) || "both",
+    question: clip(body.question, 600),
+    answer: clip(body.answer, 4000),
+  };
+  const ok = /^[a-z0-9]{8,40}$/.test(row.fid) && ["up", "down", "none"].includes(row.rating) &&
+    FEEDBACK_REASONS.includes(row.reason) && ["both", "general", "clinical"].includes(row.mode) && row.question;
+  if (!ok) return json(400, { error: "Invalid feedback." }, origin);
+  const res = await fetch(env.SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/nutrimind_feedback", {
+    method: "POST",
+    headers: { apikey: env.SUPABASE_ANON_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(row),
+  });
+  if (!res.ok) return json(502, { error: "Could not save feedback." }, origin);
+  return json(201, { status: "success" }, origin);
+}
+
 async function handlePublic(request, env, apiPath, search, origin, ctx) {
   const method = request.method;
   const allowed =
@@ -78,6 +134,7 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
     const { success } = await env.PUBLIC_LIMITER.limit({ key: ip });
     if (!success) return json(429, { error: "Too many requests. Please slow down." }, origin, { "Retry-After": "30" });
   }
+  if (method === "POST" && apiPath === "/feedback") return handleFeedback(request, env, origin);
   if (!env.DOCS_SITE_KEY) return json(503, { error: "Gateway is not configured." }, origin);
 
   const headers = { Authorization: `Bearer ${env.DOCS_SITE_KEY}`, Accept: "application/json" };
@@ -100,8 +157,21 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
     return relay(res, origin, { "X-Gateway-Cache": "MISS" });
   }
 
-  const text = await request.text();
+  if (apiPath === "/memory/write") return handleMemoryWrite(request, env, origin, headers);
+
+  let text = await request.text();
   if (text.length > MAX_BODY_BYTES) return json(413, { error: "Request body too large." }, origin);
+  if (apiPath === "/rag/ask") {
+    // Only NutriMind session ids may reach /rag/ask, and top_k stays small.
+    try {
+      const b = JSON.parse(text);
+      if (b && typeof b === "object") {
+        if ("session_id" in b && !NM_SESSION.test(String(b.session_id))) delete b.session_id;
+        if ("top_k" in b) b.top_k = Math.min(10, Math.max(1, parseInt(b.top_k, 10) || 6));
+        text = JSON.stringify(b);
+      }
+    } catch (_) { return json(400, { error: "Invalid JSON." }, origin); }
+  }
   headers["Content-Type"] = "application/json";
   const res = await callApi(env, apiPath, search, { method: "POST", headers, body: text });
   return relay(res, origin);
