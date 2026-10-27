@@ -1,11 +1,11 @@
-name: Deploy Chakudya Gateway to Cloudflare Workers
+name: Deploy Chakudya Gateway to Cloudflare Workers (manual)
 
-# Same setup as chakudya-api: add the repo secret CLOUDFLARE_API_TOKEN
-# (Settings -> Secrets and variables -> Actions). Every push to main deploys.
+# The gateway is deployed by Cloudflare's Git integration (Workers & Pages -> chakudya-gateway -> Settings -> Build),
+# not by this workflow. This workflow used to run on every push and fail without a CLOUDFLARE_API_TOKEN repo secret,
+# which sent a failure email even though the Cloudflare deploy had succeeded. It now runs only when started by hand
+# from the Actions tab, and only if the CLOUDFLARE_API_TOKEN secret is set (Settings -> Secrets and variables -> Actions).
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch: {}
 
 jobs:
