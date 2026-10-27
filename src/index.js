@@ -236,6 +236,42 @@ async function verifyAdmin(request, env) {
   return email && verified && admins.includes(email) ? email : null;
 }
 
+// Document upload for the RAG pipeline (POST /rag/upload on the API). The browser sends multipart; this rebuilds
+// the form with only the fields the API reads, after checking type and size, so nothing unexpected is forwarded.
+const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+const UPLOAD_EXT = ["pdf", "docx", "txt", "md", "csv", "html"];
+const UPLOAD_CONTEXTS = ["clinical", "general", "both"];
+
+async function handleAdminUpload(request, env, email, origin, noStore) {
+  const len = Number(request.headers.get("Content-Length") || 0);
+  if (len > UPLOAD_MAX_BYTES + 1024 * 1024) return json(413, { error: "File too large (max 25 MB)." }, origin, noStore);
+  if (!/^multipart\/form-data/i.test(request.headers.get("Content-Type") || "")) {
+    return json(400, { error: "Send multipart/form-data with a 'file' field." }, origin, noStore);
+  }
+  let form;
+  try { form = await request.formData(); } catch (_) { return json(400, { error: "Could not read the upload." }, origin, noStore); }
+  const file = form.get("file");
+  if (!file || typeof file === "string") return json(400, { error: "A 'file' field is required." }, origin, noStore);
+  const ext = String(file.name || "").split(".").pop().toLowerCase();
+  if (!UPLOAD_EXT.includes(ext)) return json(400, { error: `Unsupported file type. Allowed: ${UPLOAD_EXT.join(", ")}.` }, origin, noStore);
+  if (file.size > UPLOAD_MAX_BYTES) return json(413, { error: "File too large (max 25 MB)." }, origin, noStore);
+  if (file.size === 0) return json(400, { error: "The file is empty." }, origin, noStore);
+  const context = String(form.get("context") || "both");
+  if (!UPLOAD_CONTEXTS.includes(context)) return json(400, { error: "Context must be clinical, general or both." }, origin, noStore);
+  const source = clip(form.get("source"), 200);
+  const replace = ["true", "1", "yes"].includes(String(form.get("replace") || "").toLowerCase());
+
+  const out = new FormData();
+  out.set("file", file, file.name);
+  out.set("context", context);
+  if (source) out.set("source", source);
+  if (replace) out.set("replace", "true");
+  console.log(JSON.stringify({ admin: email, method: "POST", path: "/rag/upload", file: String(file.name).slice(0, 120), bytes: file.size }));
+  // No Content-Type here: fetch sets the multipart boundary for the rebuilt form.
+  const res = await callApi(env, "/rag/upload", "", { method: "POST", headers: { Authorization: `Bearer ${env.ADMIN_API_KEY}`, Accept: "application/json" }, body: out });
+  return relay(res, origin, noStore);
+}
+
 async function handleAdmin(request, env, apiPath, search, origin) {
   const noStore = { "Cache-Control": "no-store" };
   if (!env.ADMIN_API_KEY || !env.ADMIN_EMAILS) return json(503, { error: "Admin access is not configured." }, origin, noStore);
@@ -257,6 +293,7 @@ async function handleAdmin(request, env, apiPath, search, origin) {
   if (String(env.ADMIN_WRITES).toLowerCase() !== "true") {
     return json(403, { error: "Admin writes are switched off." }, origin, noStore);
   }
+  if (request.method === "POST" && apiPath === "/rag/upload") return handleAdminUpload(request, env, email, origin, noStore);
   const route = ADMIN_WRITE_ROUTES.find((r) => r.method === request.method && r.re.test(apiPath));
   if (!route) return json(405, { error: "This admin action is not enabled." }, origin, noStore);
 
