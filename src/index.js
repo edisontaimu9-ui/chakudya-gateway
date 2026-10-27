@@ -22,9 +22,10 @@ const PUBLIC_GET_EXACT = ["/packaged", "/dri/life-stages"];
 const PUBLIC_POST_PATHS = [
   "/rag/ask", "/meals/analyze", "/memory/write", "/feedback",
   "/energy/requirements", "/energy/food-energy", "/activity-energy/calculate",
-  "/packaged/submit",
+  "/packaged/submit", "/packaged/scan",
 ];
 const MAX_BODY_BYTES = 16 * 1024;
+const SCAN_MAX_BODY_BYTES = 4.5 * 1024 * 1024; // up to 5 compressed label photos
 
 // Community food submissions. The public form may only send these fields: anything else (status, source,
 // reviewed_by ...) is dropped, so a visitor can never publish or approve their own entry.
@@ -58,6 +59,32 @@ function cleanSubmission(raw) {
   return { json: JSON.stringify(out) };
 }
 const PUBLIC_CACHE_SECONDS = 60;
+
+// Community label photos. Rebuilt from scratch: only 1-5 image data URLs and a valid barcode get through.
+const SCAN_IMAGE = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+function gs1Ok(code) {
+  if (!/^\d+$/.test(code) || ![8, 12, 13, 14].includes(code.length)) return false;
+  const d = code.split("").map(Number), check = d.pop();
+  let sum = 0;
+  for (let i = d.length - 1, w = 3; i >= 0; i--, w = w === 3 ? 1 : 3) sum += d[i] * w;
+  return (10 - (sum % 10)) % 10 === check;
+}
+function cleanScan(raw) {
+  let p;
+  try { p = JSON.parse(raw); } catch (_) { return { error: "Body must be JSON." }; }
+  if (!p || typeof p !== "object") return { error: "Body must be a JSON object." };
+  if (typeof p.website === "string" && p.website.trim()) return { spam: true };
+  const barcode = String(p.barcode ?? "").replace(/[\s-]/g, "");
+  if (!/^\d{8,14}$/.test(barcode) || !gs1Ok(barcode)) return { error: "A valid barcode is required." };
+  if (!Array.isArray(p.images) || p.images.length < 1 || p.images.length > 5) return { error: "Send 1 to 5 photos." };
+  let total = 0;
+  for (const img of p.images) {
+    if (typeof img !== "string" || img.length > 1_200_000 || !SCAN_IMAGE.test(img)) return { error: "Photos must be JPEG, PNG or WebP images." };
+    total += img.length;
+  }
+  if (total > 4_200_000) return { error: "The photos are too large together." };
+  return { json: JSON.stringify({ images: p.images, barcode }) };
+}
 
 const csv = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
 
@@ -197,8 +224,10 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
 
   if (apiPath === "/memory/write") return handleMemoryWrite(request, env, origin, headers);
 
+  const maxBody = apiPath === "/packaged/scan" ? SCAN_MAX_BODY_BYTES : MAX_BODY_BYTES;
+  if (Number(request.headers.get("Content-Length") || 0) > maxBody) return json(413, { error: "Request body too large." }, origin);
   let text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return json(413, { error: "Request body too large." }, origin);
+  if (text.length > maxBody) return json(413, { error: "Request body too large." }, origin);
   if (apiPath === "/rag/ask") {
     // Only NutriMind session ids may reach /rag/ask, and top_k stays small.
     try {
@@ -214,6 +243,12 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
     const checked = cleanSubmission(text);
     if (checked.error) return json(400, { status: "error", message: checked.error }, origin);
     if (checked.spam) return json(201, { status: "success", message: "Packaged food submitted for review" }, origin);
+    text = checked.json;
+  }
+  if (apiPath === "/packaged/scan") {
+    const checked = cleanScan(text);
+    if (checked.error) return json(400, { status: "error", message: checked.error }, origin);
+    if (checked.spam) return json(201, { status: "success", message: "Submitted for review" }, origin);
     text = checked.json;
   }
   headers["Content-Type"] = "application/json";
