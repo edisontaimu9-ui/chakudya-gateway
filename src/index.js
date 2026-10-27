@@ -15,7 +15,7 @@ const PUBLIC_GET_PREFIXES = [
   "/health", "/foods", "/glycaemic-index", "/exchange", "/renal", "/formulas", "/drug-interactions",
   "/activity-energy", "/energy/factors",
 ];
-// Exact paths only, no sub-paths. /packaged is count-only: the gateway forces limit=1, so the stats tile can read
+// Exact paths only, no sub-paths. /packaged is count-only: the gateway forces limit=1 and status=approved, so the stats tile can read
 // "count" without the public site being able to list submissions. /dri/life-stages is static reference data.
 const PUBLIC_GET_EXACT = ["/packaged", "/dri/life-stages"];
 // Exact paths only. Calculators that read reference data and store nothing. Never a /bulk route.
@@ -171,7 +171,7 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
     const { success } = await env.PUBLIC_LIMITER.limit({ key: ip });
     if (!success) return json(429, { error: "Too many requests. Please slow down." }, origin, { "Retry-After": "30" });
   }
-  if (method === "GET" && apiPath === "/packaged") search = "?limit=1";
+  if (method === "GET" && apiPath === "/packaged") search = "?limit=1&status=approved";
   if (method === "POST" && apiPath === "/feedback") return handleFeedback(request, env, origin);
   if (!env.DOCS_SITE_KEY) return json(503, { error: "Gateway is not configured." }, origin);
 
