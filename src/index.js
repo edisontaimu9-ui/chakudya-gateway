@@ -196,6 +196,8 @@ const ADMIN_WRITE_ROUTES = [
     },
   },
   { method: "DELETE", re: /^\/admin\/keys\/\d+$/ },
+  // Dismiss an ingest job record from the admin list (the API refuses jobs that may still be running).
+  { method: "DELETE", re: /^\/rag\/jobs\/[0-9a-fA-F-]{36}$/ },
   // Packaged-food review queue. The root key has no identity of its own, so the verified
   // admin email is stamped into reviewed_by here; the browser cannot choose it.
   {
