@@ -15,12 +15,48 @@ const PUBLIC_GET_PREFIXES = [
   "/health", "/foods", "/glycaemic-index", "/exchange", "/renal", "/formulas", "/drug-interactions",
   "/activity-energy", "/energy/factors",
 ];
+// Exact paths only, no sub-paths. /packaged is count-only: the gateway forces limit=1, so the stats tile can read
+// "count" without the public site being able to list submissions. /dri/life-stages is static reference data.
+const PUBLIC_GET_EXACT = ["/packaged", "/dri/life-stages"];
 // Exact paths only. Calculators that read reference data and store nothing. Never a /bulk route.
 const PUBLIC_POST_PATHS = [
   "/rag/ask", "/meals/analyze", "/memory/write", "/feedback",
   "/energy/requirements", "/energy/food-energy", "/activity-energy/calculate",
+  "/packaged/submit",
 ];
 const MAX_BODY_BYTES = 16 * 1024;
+
+// Community food submissions. The public form may only send these fields: anything else (status, source,
+// reviewed_by ...) is dropped, so a visitor can never publish or approve their own entry.
+const SUBMIT_NUTRIENTS = ["energy_kcal", "protein_g", "fat_g", "saturated_fat_g", "carbs_g", "sugar_g", "fiber_g", "sodium_mg", "salt_g"];
+function cleanSubmission(raw) {
+  let p;
+  try { p = JSON.parse(raw); } catch (_) { return { error: "Body must be JSON." }; }
+  if (!p || typeof p !== "object") return { error: "Body must be a JSON object." };
+  if (typeof p.website === "string" && p.website.trim()) return { spam: true }; // honeypot field, real visitors leave it empty
+  const str = (v, max) => (typeof v === "string" ? v.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, max) : "");
+  const barcode = String(p.barcode ?? "").replace(/[\s-]/g, "");
+  if (!/^\d{8,14}$/.test(barcode)) return { error: "Barcode must be 8 to 14 digits." };
+  const product_name = str(p.product_name, 120);
+  if (product_name.length < 2) return { error: "Product name is required." };
+  const out = { barcode, product_name };
+  const brand = str(p.brand, 80);
+  if (brand) out.brand = brand;
+  if (["100g", "100ml", "serving"].includes(p.per)) out.per = p.per;
+  const serving = str(p.serving_size, 30);
+  if (serving) out.serving_size = serving;
+  if (out.per === "serving" && !serving) return { error: "Add the serving size (for example 30g) when values are per serving." };
+  for (const k of SUBMIT_NUTRIENTS) {
+    if (p[k] === undefined || p[k] === null || p[k] === "") continue;
+    const n = Number(p[k]);
+    if (!Number.isFinite(n) || n < 0 || n > 10000) return { error: `${k} must be a number from 0 to 10000.` };
+    out[k] = n;
+  }
+  if (out.energy_kcal === undefined) return { error: "Energy (kcal) is required." };
+  const ingredients = str(p.ingredients_text, 1000);
+  if (ingredients) out.ingredients_text = ingredients;
+  return { json: JSON.stringify(out) };
+}
 const PUBLIC_CACHE_SECONDS = 60;
 
 const csv = (s) => String(s || "").split(",").map((x) => x.trim()).filter(Boolean);
@@ -123,9 +159,10 @@ async function handleFeedback(request, env, origin) {
 }
 
 async function handlePublic(request, env, apiPath, search, origin, ctx) {
+  // (search is reassigned for /packaged below)
   const method = request.method;
   const allowed =
-    (method === "GET" && PUBLIC_GET_PREFIXES.some((p) => underPrefix(apiPath, p))) ||
+    (method === "GET" && (PUBLIC_GET_PREFIXES.some((p) => underPrefix(apiPath, p)) || PUBLIC_GET_EXACT.includes(apiPath))) ||
     (method === "POST" && PUBLIC_POST_PATHS.includes(apiPath));
   if (!allowed) return json(403, { error: "Not available through the docs gateway." }, origin);
 
@@ -134,6 +171,7 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
     const { success } = await env.PUBLIC_LIMITER.limit({ key: ip });
     if (!success) return json(429, { error: "Too many requests. Please slow down." }, origin, { "Retry-After": "30" });
   }
+  if (method === "GET" && apiPath === "/packaged") search = "?limit=1";
   if (method === "POST" && apiPath === "/feedback") return handleFeedback(request, env, origin);
   if (!env.DOCS_SITE_KEY) return json(503, { error: "Gateway is not configured." }, origin);
 
@@ -171,6 +209,12 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
         text = JSON.stringify(b);
       }
     } catch (_) { return json(400, { error: "Invalid JSON." }, origin); }
+  }
+  if (apiPath === "/packaged/submit") {
+    const checked = cleanSubmission(text);
+    if (checked.error) return json(400, { status: "error", message: checked.error }, origin);
+    if (checked.spam) return json(201, { status: "success", message: "Packaged food submitted for review" }, origin);
+    text = checked.json;
   }
   headers["Content-Type"] = "application/json";
   const res = await callApi(env, apiPath, search, { method: "POST", headers, body: text });
