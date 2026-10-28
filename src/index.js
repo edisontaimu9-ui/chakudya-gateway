@@ -235,6 +235,15 @@ async function handlePublic(request, env, apiPath, search, origin, ctx) {
       if (b && typeof b === "object") {
         if ("session_id" in b && !NM_SESSION.test(String(b.session_id))) delete b.session_id;
         if ("top_k" in b) b.top_k = Math.min(10, Math.max(1, parseInt(b.top_k, 10) || 6));
+        // Optional chat history (last 6 turns, oldest first): keep only {role, text} pairs with a valid role, text cut to 400 chars.
+        if ("history" in b) {
+          const turns = Array.isArray(b.history) ? b.history : [];
+          const clean = turns
+            .filter((t) => t && (t.role === "user" || t.role === "assistant" || t.role === "bot") && typeof t.text === "string" && t.text.trim())
+            .slice(-6)
+            .map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text.trim().slice(0, 400) }));
+          if (clean.length) b.history = clean; else delete b.history;
+        }
         text = JSON.stringify(b);
       }
     } catch (_) { return json(400, { error: "Invalid JSON." }, origin); }
