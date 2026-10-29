@@ -8,4 +8,4 @@ One Worker in front of chakudya-api.
 Secrets (dashboard -> chakudya-gateway -> Settings -> Variables and Secrets): `DOCS_SITE_KEY`, `ADMIN_API_KEY`, `ADMIN_EMAILS`.
 Repo secret for deploy: `CLOUDFLARE_API_TOKEN`.
 
-Test: `curl -H "Origin: https://edisontaimu9-ui.github.io" "https://chakudya-gateway.edisontaimu9.workers.dev/p/health"`
+Test: `curl -H "Origin: https://chakudya.xyz" "https://gateway.chakudya.xyz/p/health"`

@@ -13,7 +13,7 @@ account_id = "2d878c3281833694bc40ceecd6cf889f"
 #   ADMIN_EMAILS    comma-separated emails allowed on /a/* (e.g. you@example.com)
 
 [vars]
-API_URL = "https://chakudya-api.edisontaimu9.workers.dev"
+API_URL = "https://api.chakudya.xyz"
 # Origins allowed to call this gateway from a browser (comma-separated, no path).
 ALLOWED_ORIGINS = "https://chakudya.xyz,https://edisontaimu9-ui.github.io,https://minutriq.me"
 # Public values (same as js/config.js in the docs site).
