@@ -14,6 +14,9 @@
 const PUBLIC_GET_PREFIXES = [
   "/health", "/foods", "/glycaemic-index", "/exchange", "/renal", "/formulas", "/drug-interactions",
   "/activity-energy", "/energy/factors",
+  // WHO growth reference tables (static reference data, read by the landing page stats tile).
+  "/weight-for-age", "/length-height-for-age", "/weight-for-length-height", "/bmi-for-age", "/bmi-for-age-under-5",
+  "/hc-for-age", "/muac-for-age", "/weight-velocity", "/length-velocity", "/hc-velocity",
 ];
 // Exact paths only, no sub-paths. /packaged is count-only: the gateway forces limit=1 and status=approved, so the stats tile can read
 // "count" without the public site being able to list submissions. /dri/life-stages is static reference data.
